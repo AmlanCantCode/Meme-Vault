@@ -21,15 +21,24 @@ export async function DELETE(request: Request) {
 
     // 2. Delete video from SUFY S3 Storage
     if (videoUrl) {
-      const publicBaseUrl = process.env.NEXT_PUBLIC_SUFY_PUBLIC_URL || "";
-      const key = videoUrl.replace(`${publicBaseUrl}/`, "");
+      try {
+        // Robust S3 key extraction: safe against trailing slashes & URL-encoded characters
+        const rawKey = new URL(videoUrl).pathname.replace(/^\//, "");
+        const key = decodeURIComponent(rawKey);
 
-      const deleteCommand = new DeleteObjectCommand({
-        Bucket: process.env.SUFY_BUCKET_NAME,
-        Key: key,
-      });
+        const deleteCommand = new DeleteObjectCommand({
+          Bucket: process.env.SUFY_BUCKET_NAME,
+          Key: key,
+        });
 
-      await sufyClient.send(deleteCommand);
+        await sufyClient.send(deleteCommand);
+      } catch (sufyErr) {
+        console.error("SUFY Storage Delete Error:", sufyErr);
+        return NextResponse.json(
+          { error: "Failed to delete video file from storage." },
+          { status: 500 }
+        );
+      }
     }
 
     // 3. Delete metadata record from Supabase
