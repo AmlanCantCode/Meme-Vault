@@ -1,10 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-
-// Initialize Supabase
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const supabase = createClient(supabaseUrl, supabaseKey);
+import { supabase, supabaseAdmin } from "@/lib/supabase";
 
 export async function GET() {
   try {
@@ -23,20 +18,48 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    const formData = await req.formData();
-    const title = (formData.get("title") as string) || "";
-    const category = (formData.get("category") as string) || "";
-    const rawTags = (formData.get("tags") as string) || "";
-    const tags = rawTags.split(",").map((t) => t.trim()).filter(Boolean);
-    const file = formData.get("file") as File | null;
-    let video_url = (formData.get("video_url") as string) || "";
+    const body = await req.json();
+    const { title = "", category = "", tags = [], video_url = "", url = "", slug = "" } = body;
+
+    const finalVideoUrl = video_url || url;
 
     if (!title.trim()) {
-      return NextResponse.json({ error: "Title is required." }, { status: 400 });
+      return NextResponse.json(
+        { error: "Title is required." },
+        { status: 400 }
+      );
     }
 
-    // 🔁 Duplicate check: reject if a meme with the same title (case-insensitive) already exists
-    const { data: existing, error: dupCheckError } = await supabase
+    if (!finalVideoUrl) {
+      return NextResponse.json(
+        { error: "Video URL is required." },
+        { status: 400 }
+      );
+    }
+
+    // Format tags if passed as comma-separated string
+    let formattedTags = tags;
+    if (typeof tags === "string") {
+      formattedTags = tags
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean);
+    }
+
+    // Generate slug fallback if missing
+    const finalSlug =
+      slug ||
+      title
+        .toLowerCase()
+        .trim()
+        .replace(/[^\w\s-]/g, "")
+        .replace(/[\s_-]+/g, "-")
+        .replace(/^-+|-+$/g, "") +
+        "-" +
+        Date.now();
+
+    // Duplicate title check using admin client
+    const { data: existing, error: dupCheckError } = await supabaseAdmin
       .from("memes")
       .select("id")
       .ilike("title", title.trim())
@@ -46,41 +69,25 @@ export async function POST(req: Request) {
       console.error("Duplicate check failed:", dupCheckError);
     } else if (existing && existing.length > 0) {
       return NextResponse.json(
-        { error: "A meme with this exact title already exists. Please rename it or check the vault." },
+        {
+          error:
+            "A meme with this exact title already exists. Please rename it or check the vault.",
+        },
         { status: 409 }
       );
     }
 
-    // If a local file is uploaded, push it to SUFY
-    if (file && file.size > 0) {
-      const sufyFormData = new FormData();
-      sufyFormData.append("file", file);
-
-      const sufyRes = await fetch("https://api.sufy.io/v1/upload", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${process.env.SUFY_API_KEY}`
-        },
-        body: sufyFormData,
-      });
-
-      if (!sufyRes.ok) {
-        const errText = await sufyRes.text();
-        throw new Error(`SUFY Upload Failed: ${errText}`);
-      }
-
-      const sufyData = await sufyRes.json();
-      video_url = sufyData.url;
-    }
-
-    if (!video_url) {
-      return NextResponse.json({ error: "Video URL or File is required" }, { status: 400 });
-    }
-
-    const { data: newMeme, error } = await supabase
+    // Insert record via admin client
+    const { data: newMeme, error } = await supabaseAdmin
       .from("memes")
       .insert([
-        { title: title.trim(), category, tags, video_url }
+        {
+          title: title.trim(),
+          category,
+          tags: formattedTags,
+          video_url: finalVideoUrl,
+          slug: finalSlug,
+        },
       ])
       .select()
       .single();

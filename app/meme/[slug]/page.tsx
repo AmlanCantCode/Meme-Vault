@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { MOCK_MEMES } from "@/data/memes";
+import { supabase } from "@/lib/supabase"; // Ensure this matches your Supabase client path
 
 interface Props {
   params: Promise<{ slug: string }>;
@@ -8,9 +8,16 @@ interface Props {
 
 export default async function MemeDetailPage({ params }: Props) {
   const { slug } = await params;
-  const meme = MOCK_MEMES.find((m) => m.slug === slug);
 
-  if (!meme) {
+  // 1. Fetch the meme from Supabase by slug
+  const { data: meme, error } = await supabase
+    .from("memes")
+    .select("*")
+    .eq("slug", slug)
+    .single();
+
+  // 2. Return 404 if not found in database
+  if (error || !meme) {
     notFound();
   }
 
@@ -30,28 +37,30 @@ export default async function MemeDetailPage({ params }: Props) {
           <div className="lg:col-span-2 space-y-4">
             <div className="aspect-video w-full rounded-2xl overflow-hidden bg-neutral-900 border border-neutral-800 shadow-2xl">
               <video
-                src={meme.videoUrl}
+                src={meme.url}
                 controls
                 autoPlay
                 loop
                 className="w-full h-full object-contain"
               />
             </div>
-            
+
             <h1 className="text-2xl font-bold tracking-tight text-white">
               {meme.title}
             </h1>
 
-            <div className="flex gap-2 flex-wrap">
-              {meme.tags.map((tag) => (
-                <span
-                  key={tag}
-                  className="text-xs bg-neutral-800 text-neutral-300 px-3 py-1 rounded-full border border-neutral-700"
-                >
-                  #{tag}
-                </span>
-              ))}
-            </div>
+            {meme.tags && meme.tags.length > 0 && (
+              <div className="flex gap-2 flex-wrap">
+                {meme.tags.map((tag: string) => (
+                  <span
+                    key={tag}
+                    className="text-xs bg-neutral-800 text-neutral-300 px-3 py-1 rounded-full border border-neutral-700"
+                  >
+                    #{tag}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Sidebar with Download & Ad Unit */}
@@ -61,7 +70,7 @@ export default async function MemeDetailPage({ params }: Props) {
                 Download Asset
               </h2>
               <a
-                href={meme.videoUrl}
+                href={meme.url}
                 download
                 className="w-full block text-center bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-bold py-3 px-4 rounded-xl transition-all shadow-lg shadow-emerald-500/10"
               >

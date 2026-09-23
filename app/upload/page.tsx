@@ -2,6 +2,7 @@
 
 import { useState, FormEvent, ChangeEvent, DragEvent } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 
 export default function UploadPage() {
@@ -13,19 +14,19 @@ export default function UploadPage() {
   const [videoUrl, setVideoUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [uploadProgress, setUploadProgress] = useState(0);
   const router = useRouter();
 
-  // Handle local file selection
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       setVideoFile(file);
       setPreviewUrl(URL.createObjectURL(file));
-      setVideoUrl(""); // Clear manual URL if file chosen
+      setVideoUrl("");
+      setError("");
     }
   };
 
-  // Handle drag and drop
   const handleDrop = (e: DragEvent<HTMLLabelElement>) => {
     e.preventDefault();
     const file = e.dataTransfer.files?.[0];
@@ -33,6 +34,7 @@ export default function UploadPage() {
       setVideoFile(file);
       setPreviewUrl(URL.createObjectURL(file));
       setVideoUrl("");
+      setError("");
     }
   };
 
@@ -45,44 +47,94 @@ export default function UploadPage() {
 
     setLoading(true);
     setError("");
+    setUploadProgress(0);
 
     try {
-      let res: Response;
+      let finalVideoUrl = videoUrl;
 
-      // Send as FormData if a local file is uploaded
+      // Upload local file using presigned URL (direct browser upload)
       if (videoFile) {
-        const formData = new FormData();
-        formData.append("title", title);
-        formData.append("category", category);
-        formData.append("tags", tags);
-        formData.append("file", videoFile);
+        console.log(`Starting upload for: ${videoFile.name} (${(videoFile.size / (1024 * 1024)).toFixed(2)}MB)`);
 
-        res = await fetch("/api/memes", {
-          method: "POST",
-          body: formData,
-        });
-      } else {
-        // Fallback to JSON payload if URL is used
-        res = await fetch("/api/memes", {
+        // Step 1: Get presigned URL from server
+        console.log("Requesting presigned URL...");
+        const presignedRes = await fetch("/api/signed-url", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            title,
-            category,
-            tags: tags.split(",").map((t) => t.trim()).filter(Boolean),
-            video_url: videoUrl,
+            fileName: videoFile.name,
+            fileType: videoFile.type,
           }),
         });
+
+        if (!presignedRes.ok) {
+          const errData = await presignedRes.json();
+          throw new Error(errData.error || "Failed to get upload URL");
+        }
+
+        const { uploadUrl, publicUrl } = await presignedRes.json();
+        console.log("Got presigned URL, starting direct upload...");
+
+        // Step 2: Upload directly to S3/SUFY using presigned URL
+        // This bypasses nginx limits because it goes straight to S3
+        const uploadRes = await fetch(uploadUrl, {
+          method: "PUT",
+          body: videoFile,
+          headers: {
+            "Content-Type": videoFile.type,
+          },
+        });
+
+        if (!uploadRes.ok) {
+          const errorText = await uploadRes.text();
+          console.error("S3 Upload failed:", uploadRes.status, errorText);
+          throw new Error(`Upload to storage failed: ${uploadRes.statusText}`);
+        }
+
+        finalVideoUrl = publicUrl;
+        setUploadProgress(100);
+        console.log(`✅ Upload successful: ${publicUrl}`);
       }
+
+      // Step 3: Save metadata to database
+      console.log("Saving metadata to database...");
+
+      // Generate a URL-friendly slug from the title
+      const slug =
+        title
+          .toLowerCase()
+          .trim()
+          .replace(/[^\w\s-]/g, "")
+          .replace(/[\s_-]+/g, "-")
+          .replace(/^-+|-+$/g, "") +
+        "-" +
+        Date.now();
+
+      const res = await fetch("/api/memes", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          title,
+          category,
+          tags,
+          video_url: finalVideoUrl,
+          url: finalVideoUrl,
+          slug,
+        }),
+      });
 
       if (!res.ok) {
         const data = await res.json();
-        throw new Error(data.error || "Failed to upload meme");
+        throw new Error(data.error || "Failed to publish meme");
       }
 
+      console.log("✅ Meme published successfully!");
       router.push("/");
     } catch (err: any) {
-      setError(err.message);
+      console.error("Upload error:", err);
+      setError(err.message || "An error occurred during upload.");
     } finally {
       setLoading(false);
     }
@@ -90,32 +142,54 @@ export default function UploadPage() {
 
   return (
     <div className="min-h-screen bg-neutral-950 text-white flex flex-col justify-between p-6">
-      {/* Header */}
       <header className="max-w-3xl w-full mx-auto flex items-center justify-between py-4 border-b border-neutral-800/60">
-        <div className="flex items-center space-x-3">
-          <Link href="/" className="w-9 h-9 bg-red-600 rounded-full flex items-center justify-center font-black text-white text-xl shadow-lg shadow-red-600/30">
-            P
-          </Link>
-          <span className="font-extrabold text-lg tracking-tight">Meme Vault</span>
-        </div>
-        <Link href="/" className="text-xs text-neutral-400 hover:text-white transition-colors">
+        <Link href="/" className="flex items-center space-x-3 group">
+          <div className="relative w-9 h-9 rounded-full overflow-hidden shadow-lg shadow-red-600/20 group-hover:scale-105 transition-transform">
+            <Image
+              src="/Meme Vault.png"
+              alt="Meme Vault Logo"
+              fill
+              sizes="36px"
+              className="object-cover"
+              priority
+            />
+          </div>
+          <span className="font-extrabold text-lg tracking-tight text-white">
+            Meme Vault
+          </span>
+        </Link>
+        <Link
+          href="/"
+          className="text-xs text-neutral-400 hover:text-white transition-colors"
+        >
           ← Back to feed
         </Link>
       </header>
 
-      {/* Form Container */}
       <main className="max-w-xl w-full mx-auto my-12 bg-neutral-900 border border-neutral-800 rounded-3xl p-8 shadow-2xl">
         <h1 className="text-2xl font-bold mb-2">Create a New Pin</h1>
         <p className="text-xs text-neutral-400 mb-6">
           Upload your favorite video memes to the vault.
         </p>
 
-        {/* Admin Only Note */}
         <div className="mb-6 bg-red-500/10 border border-red-500/30 rounded-2xl p-4 text-xs text-red-400 flex items-center space-x-2.5">
-          <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          <svg
+            className="w-4 h-4 shrink-0"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+              d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
           </svg>
-          <span><strong>Note:</strong> Only the admin of Meme Vault can create more videos.</span>
+          <span>
+            <strong>Note:</strong> Only the admin of Meme Vault can create
+            more videos.
+          </span>
         </div>
 
         {error && (
@@ -125,10 +199,10 @@ export default function UploadPage() {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          
-          {/* Title Field */}
           <div>
-            <label className="block text-xs font-semibold text-neutral-300 mb-1">Title</label>
+            <label className="block text-xs font-semibold text-neutral-300 mb-1">
+              Title
+            </label>
             <input
               type="text"
               required
@@ -139,16 +213,19 @@ export default function UploadPage() {
             />
           </div>
 
-          {/* Category Dropdown */}
           <div>
-            <label className="block text-xs font-semibold text-neutral-300 mb-1">Category</label>
+            <label className="block text-xs font-semibold text-neutral-300 mb-1">
+              Category
+            </label>
             <select
               required
               value={category}
               onChange={(e) => setCategory(e.target.value)}
               className="w-full bg-neutral-800 text-xs px-4 py-3 rounded-xl border border-neutral-700 focus:outline-none focus:border-red-500 text-white cursor-pointer appearance-none"
             >
-              <option value="" disabled>Select a category...</option>
+              <option value="" disabled>
+                Select a category...
+              </option>
               <option value="Brainrot">Brainrot & Hood Irony 💔☠️</option>
               <option value="Programming">Programming & Dev</option>
               <option value="Gaming">Gaming</option>
@@ -159,9 +236,10 @@ export default function UploadPage() {
             </select>
           </div>
 
-          {/* Tags Field */}
           <div>
-            <label className="block text-xs font-semibold text-neutral-300 mb-1">Tags (comma separated)</label>
+            <label className="block text-xs font-semibold text-neutral-300 mb-1">
+              Tags (comma separated)
+            </label>
             <input
               type="text"
               value={tags}
@@ -171,7 +249,6 @@ export default function UploadPage() {
             />
           </div>
 
-          {/* Local Video File Upload Box */}
           <div>
             <label className="block text-xs font-semibold text-neutral-300 mb-1">
               Upload Video File (.mp4, .webm)
@@ -200,7 +277,8 @@ export default function UploadPage() {
                     className="max-h-44 rounded-xl border border-neutral-700 shadow"
                   />
                   <p className="text-xs text-neutral-300 font-mono truncate max-w-xs">
-                    {videoFile?.name} ({(videoFile!.size / (1024 * 1024)).toFixed(2)} MB)
+                    {videoFile?.name} (
+                    {(videoFile!.size / (1024 * 1024)).toFixed(2)} MB)
                   </p>
                   <span className="text-[11px] text-red-400 underline">
                     Click or drag to replace video
@@ -208,21 +286,40 @@ export default function UploadPage() {
                 </div>
               ) : (
                 <div className="text-center py-3 space-y-1">
-                  <svg className="w-8 h-8 mx-auto text-neutral-400 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 0115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                  <svg
+                    className="w-8 h-8 mx-auto text-neutral-400 mb-1"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M7 16a4 4 0 01-.88-7.903A5 5 0 0115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+                    />
                   </svg>
                   <p className="text-xs font-medium text-neutral-200">
                     Click to choose or drag video file from PC
                   </p>
                   <p className="text-[11px] text-neutral-500">
-                    MP4 or WebM (1–3 MB recommended)
+                    MP4 or WebM (up to 500MB supported)
                   </p>
                 </div>
               )}
             </label>
           </div>
 
-          {/* Optional Direct Video URL Fallback */}
+          {/* Upload Progress */}
+          {uploadProgress > 0 && uploadProgress < 100 && (
+            <div className="w-full bg-neutral-800 rounded-full h-2">
+              <div
+                className="bg-red-600 h-2 rounded-full transition-all duration-300"
+                style={{ width: `${uploadProgress}%` }}
+              />
+            </div>
+          )}
+
           <div>
             <label className="block text-[11px] text-neutral-400 mb-1">
               Or paste direct Video URL (.mp4)
@@ -242,13 +339,22 @@ export default function UploadPage() {
             />
           </div>
 
-          {/* Submit Button */}
           <button
             type="submit"
             disabled={loading}
             className="w-full bg-red-600 hover:bg-red-700 text-white text-xs font-bold py-3.5 rounded-full transition-all shadow-lg shadow-red-600/20 active:scale-95 disabled:opacity-50 mt-4"
           >
-            {loading ? "Publishing..." : "Publish Pin"}
+            {loading ? (
+              <span className="flex items-center justify-center gap-2">
+                <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+                Publishing... ({uploadProgress}%)
+              </span>
+            ) : (
+              "Publish Pin"
+            )}
           </button>
         </form>
       </main>

@@ -1,5 +1,5 @@
 import { S3Client } from "@aws-sdk/client-s3";
-import { NodeHttpHandler } from "@smithy/node-http-handler";
+import { NodeHttpHandler } from "@aws-sdk/node-http-handler";
 import https from "https";
 
 export const sufyClient = new S3Client({
@@ -12,7 +12,7 @@ export const sufyClient = new S3Client({
   forcePathStyle: false,
   requestHandler: new NodeHttpHandler({
     httpsAgent: new https.Agent({
-      rejectUnauthorized: false, // Prevents SSL certificate validation crashes with custom S3 providers
+      rejectUnauthorized: false, // Bypasses Sufy's invalid SSL certificate error on the server
     }),
   }),
 });

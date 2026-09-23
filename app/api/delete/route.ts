@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { sufyClient } from "@/lib/sufy";
-import { supabase } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase";
 
 export async function DELETE(request: Request) {
   try {
@@ -22,16 +22,18 @@ export async function DELETE(request: Request) {
     // 2. Delete video from SUFY S3 Storage
     if (videoUrl) {
       try {
-        // Robust S3 key extraction: safe against trailing slashes & URL-encoded characters
-        const rawKey = new URL(videoUrl).pathname.replace(/^\//, "");
+        const parsedUrl = new URL(videoUrl);
+        const rawKey = parsedUrl.pathname.replace(/^\//, "");
         const key = decodeURIComponent(rawKey);
 
-        const deleteCommand = new DeleteObjectCommand({
-          Bucket: process.env.SUFY_BUCKET_NAME,
-          Key: key,
-        });
+        if (key) {
+          const deleteCommand = new DeleteObjectCommand({
+            Bucket: process.env.SUFY_BUCKET_NAME,
+            Key: key,
+          });
 
-        await sufyClient.send(deleteCommand);
+          await sufyClient.send(deleteCommand);
+        }
       } catch (sufyErr) {
         console.error("SUFY Storage Delete Error:", sufyErr);
         return NextResponse.json(
@@ -41,8 +43,8 @@ export async function DELETE(request: Request) {
       }
     }
 
-    // 3. Delete metadata record from Supabase
-    const { error } = await supabase.from("memes").delete().eq("id", id);
+    // 3. Delete metadata record from Supabase via admin client
+    const { error } = await supabaseAdmin.from("memes").delete().eq("id", id);
 
     if (error) {
       console.error("Supabase Delete Error:", error);

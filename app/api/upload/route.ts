@@ -1,56 +1,94 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { sufyClient } from "@/lib/sufy";
 
-export const maxDuration = 60;
-export const dynamic = "force-dynamic";
+// ✅ Set max body size for this route to 100MB
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: "100mb",
+    },
+  },
+};
 
-export async function POST(request: Request) {
+// Also set a longer timeout for large uploads
+export const maxDuration = 60; // 60 seconds for serverless
+
+export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
-    const passcode = formData.get("passcode") as string;
     const file = formData.get("file") as File;
 
-    if (!passcode || passcode !== process.env.UPLOAD_ADMIN_SECRET) {
-      return NextResponse.json(
-        { error: "Oops! Wrong Password." },
-        { status: 401 }
-      );
-    }
-
     if (!file) {
+      return NextResponse.json({ error: "No file provided" }, { status: 400 });
+    }
+
+    // Validate file size (be generous but sensible)
+    const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500MB max
+    if (file.size > MAX_FILE_SIZE) {
       return NextResponse.json(
-        { error: "No file provided." },
-        { status: 400 }
+        { error: `File too large. Maximum size is 500MB. Received: ${(file.size / (1024 * 1024)).toFixed(2)}MB` },
+        { status: 413 }
       );
     }
 
-    const timestamp = Date.now();
-    const cleanFileName = file.name.replace(/[^a-zA-Z0-9.-]/g, "_");
-    const fileKey = `${timestamp}_${cleanFileName}`;
+    try {
+      const buffer = Buffer.from(await file.arrayBuffer());
+      const uniqueKey = `${Date.now()}-${file.name.replace(/\s+/g, "-")}`;
+      const bucketName = process.env.SUFY_BUCKET_NAME || "meme-vault-storage";
 
-    const buffer = Buffer.from(await file.arrayBuffer());
+      console.log(`Uploading file: ${file.name} (${(file.size / (1024 * 1024)).toFixed(2)}MB)`);
 
-    const command = new PutObjectCommand({
-      Bucket: process.env.SUFY_BUCKET_NAME,
-      Key: fileKey,
-      Body: buffer,
-      ContentType: file.type || "video/mp4",
-    });
+      await sufyClient.send(
+        new PutObjectCommand({
+          Bucket: bucketName,
+          Key: uniqueKey,
+          Body: buffer,
+          ContentType: file.type,
+        })
+      );
 
-    await sufyClient.send(command);
+      const publicBaseUrl = process.env.NEXT_PUBLIC_SUFY_PUBLIC_URL || "https://idoxjpn.sufydely.com";
+      const publicUrl = `${publicBaseUrl}/${uniqueKey}`;
 
-    const publicBaseUrl = process.env.NEXT_PUBLIC_SUFY_PUBLIC_URL || "";
-    const videoUrl = `${publicBaseUrl}/${fileKey}`;
+      console.log(`✅ Upload successful: ${publicUrl}`);
 
-    return NextResponse.json({
-      success: true,
-      videoUrl,
-    });
+      return NextResponse.json({ publicUrl }, { status: 200 });
+    } catch (sufyError: any) {
+      console.error("S3/Sufy Upload Error Details:", {
+        message: sufyError.message,
+        code: sufyError.code,
+        statusCode: sufyError.$metadata?.httpStatusCode,
+        response: sufyError.$response,
+      });
+
+      // If it's a 413 from S3 itself, return that
+      if (sufyError.$metadata?.httpStatusCode === 413) {
+        return NextResponse.json(
+          { 
+            error: "File too large for storage provider. Try a smaller video (under 500MB).",
+            details: sufyError.message
+          },
+          { status: 413 }
+        );
+      }
+
+      // Generic S3 error
+      return NextResponse.json(
+        { 
+          error: "Failed to upload file to storage provider",
+          details: sufyError.message 
+        },
+        { status: 500 }
+      );
+    }
   } catch (error: any) {
-    console.error("Upload Error:", error);
+    console.error("Server Upload Error:", error);
     return NextResponse.json(
-      { error: error?.message || "Failed to upload file." },
+      { 
+        error: "Failed to process upload request",
+        details: error.message || "Unknown error" 
+      },
       { status: 500 }
     );
   }
