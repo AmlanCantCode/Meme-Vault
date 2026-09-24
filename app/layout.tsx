@@ -31,20 +31,14 @@ export default function RootLayout({ children }: LayoutProps) {
     >
       <head>
         {/* Monetag In-Page Push Zone (11870384) */}
-        <Script
-          id="monetag-inpage-push"
-          src="https://alwingulla.com/88/tag.min.js"
-          data-zone="11870384"
-          strategy="afterInteractive"
-        />
-        
+        <Script id="monetag-inpage-push" strategy="afterInteractive">
+          {`(function(d,z,s){s.src='https://alwingulla.com/88/tag.min.js';s.setAttribute('data-zone',z);(d.head||d.documentElement).appendChild(s);})(document,11870384,document.createElement('script'));`}
+        </Script>
+
         {/* Monetag Vignette Banner Zone (11870472) */}
-        <Script
-          id="monetag-vignette"
-          src="https://alwingulla.com/88/tag.min.js"
-          data-zone="11870472"
-          strategy="afterInteractive"
-        />
+        <Script id="monetag-vignette" strategy="afterInteractive">
+          {`(function(d,z,s){s.src='https://alwingulla.com/88/tag.min.js';s.setAttribute('data-zone',z);(d.head||d.documentElement).appendChild(s);})(document,11870472,document.createElement('script'));`}
+        </Script>
       </head>
       <body className="min-h-full flex flex-col bg-neutral-950 text-white">
         {children}
