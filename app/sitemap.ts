@@ -1,12 +1,12 @@
 import { MetadataRoute } from "next";
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  // Replace this with your actual site URL or environment variable
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "https://your-domain.vercel.app";
+  const baseUrl = "https://meme-vault-kappa.vercel.app";
 
   try {
-    // Fetch all memes to generate URLs for Google
     const res = await fetch(`${baseUrl}/api/memes`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch memes");
+
     const data = await res.json();
     const memes = data.memes || [];
 
