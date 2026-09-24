@@ -5,7 +5,15 @@ import { sufyClient } from "@/lib/sufy";
 
 export async function POST(request: Request) {
   try {
-    const { fileName, fileType } = await request.json();
+    const { fileName, fileType, password } = await request.json();
+
+    // Check Admin Password
+    if (!password || password !== process.env.UPLOAD_ADMIN_PASSWORD) {
+      return NextResponse.json(
+        { error: "Unauthorized: Invalid upload password" },
+        { status: 401 }
+      );
+    }
 
     if (!fileName || !fileType) {
       return NextResponse.json({ error: "Missing file details" }, { status: 400 });
@@ -20,7 +28,7 @@ export async function POST(request: Request) {
       ContentType: fileType,
     });
 
-    // Generate signed upload URL pointing to S3
+    // Generate signed upload URL pointing to Sufy / S3
     const uploadUrl = await getSignedUrl(sufyClient, command, { expiresIn: 600 });
     
     // Construct public viewable link using Sufy CDN

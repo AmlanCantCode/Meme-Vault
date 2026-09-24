@@ -9,6 +9,7 @@ export default function UploadPage() {
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState("");
   const [tags, setTags] = useState("");
+  const [password, setPassword] = useState("");
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [videoUrl, setVideoUrl] = useState("");
@@ -45,6 +46,11 @@ export default function UploadPage() {
       return;
     }
 
+    if (!password) {
+      setError("Please enter the admin password.");
+      return;
+    }
+
     setLoading(true);
     setError("");
     setUploadProgress(0);
@@ -52,31 +58,29 @@ export default function UploadPage() {
     try {
       let finalVideoUrl = videoUrl;
 
-      // Upload local file using presigned URL (direct browser upload)
+      // Upload local file using presigned URL
       if (videoFile) {
-        console.log(`Starting upload for: ${videoFile.name} (${(videoFile.size / (1024 * 1024)).toFixed(2)}MB)`);
-
         // Step 1: Get presigned URL from server
-        console.log("Requesting presigned URL...");
         const presignedRes = await fetch("/api/signed-url", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             fileName: videoFile.name,
             fileType: videoFile.type,
+            password,
           }),
         });
 
         if (!presignedRes.ok) {
           const errData = await presignedRes.json();
-          throw new Error(errData.error || "Failed to get upload URL");
+          setError(errData.error || "Failed to get upload URL");
+          setLoading(false);
+          return;
         }
 
         const { uploadUrl, publicUrl } = await presignedRes.json();
-        console.log("Got presigned URL, starting direct upload...");
 
-        // Step 2: Upload directly to S3/SUFY using presigned URL
-        // This bypasses nginx limits because it goes straight to S3
+        // Step 2: Upload directly to S3/SUFY
         const uploadRes = await fetch(uploadUrl, {
           method: "PUT",
           body: videoFile,
@@ -86,20 +90,16 @@ export default function UploadPage() {
         });
 
         if (!uploadRes.ok) {
-          const errorText = await uploadRes.text();
-          console.error("S3 Upload failed:", uploadRes.status, errorText);
-          throw new Error(`Upload to storage failed: ${uploadRes.statusText}`);
+          setError(`Upload to storage failed: ${uploadRes.statusText}`);
+          setLoading(false);
+          return;
         }
 
         finalVideoUrl = publicUrl;
         setUploadProgress(100);
-        console.log(`✅ Upload successful: ${publicUrl}`);
       }
 
       // Step 3: Save metadata to database
-      console.log("Saving metadata to database...");
-
-      // Generate a URL-friendly slug from the title
       const slug =
         title
           .toLowerCase()
@@ -122,20 +122,21 @@ export default function UploadPage() {
           video_url: finalVideoUrl,
           url: finalVideoUrl,
           slug,
+          password,
         }),
       });
 
       if (!res.ok) {
         const data = await res.json();
-        throw new Error(data.error || "Failed to publish meme");
+        setError(data.error || "Failed to publish meme");
+        setLoading(false);
+        return;
       }
 
-      console.log("✅ Meme published successfully!");
       router.push("/");
     } catch (err: any) {
       console.error("Upload error:", err);
       setError(err.message || "An error occurred during upload.");
-    } finally {
       setLoading(false);
     }
   };
@@ -193,7 +194,7 @@ export default function UploadPage() {
         </div>
 
         {error && (
-          <div className="mb-4 bg-red-950/50 border border-red-800 text-red-300 text-xs p-3 rounded-xl">
+          <div className="mb-4 bg-red-950/50 border border-red-800 text-red-300 text-xs p-3 rounded-xl font-medium">
             {error}
           </div>
         )}
@@ -245,6 +246,20 @@ export default function UploadPage() {
               value={tags}
               onChange={(e) => setTags(e.target.value)}
               placeholder="coding, bugs, developer"
+              className="w-full bg-neutral-800 text-xs px-4 py-3 rounded-xl border border-neutral-700 focus:outline-none focus:border-red-500 text-white placeholder-neutral-500"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-neutral-300 mb-1">
+              Admin Password
+            </label>
+            <input
+              type="password"
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Enter admin password to authorize upload"
               className="w-full bg-neutral-800 text-xs px-4 py-3 rounded-xl border border-neutral-700 focus:outline-none focus:border-red-500 text-white placeholder-neutral-500"
             />
           </div>
@@ -310,7 +325,6 @@ export default function UploadPage() {
             </label>
           </div>
 
-          {/* Upload Progress */}
           {uploadProgress > 0 && uploadProgress < 100 && (
             <div className="w-full bg-neutral-800 rounded-full h-2">
               <div
@@ -346,9 +360,24 @@ export default function UploadPage() {
           >
             {loading ? (
               <span className="flex items-center justify-center gap-2">
-                <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                <svg
+                  className="animate-spin h-4 w-4"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  />
                 </svg>
                 Publishing... ({uploadProgress}%)
               </span>

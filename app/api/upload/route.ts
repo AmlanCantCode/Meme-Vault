@@ -2,29 +2,29 @@ import { NextRequest, NextResponse } from "next/server";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { sufyClient } from "@/lib/sufy";
 
-// ✅ Set max body size for this route to 100MB
-export const config = {
-  api: {
-    bodyParser: {
-      sizeLimit: "100mb",
-    },
-  },
-};
-
-// Also set a longer timeout for large uploads
-export const maxDuration = 60; // 60 seconds for serverless
+export const maxDuration = 60; // 60 seconds max execution time on Vercel
 
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
+    
+    // Check Admin Password
+    const password = formData.get("password");
+    if (!password || password !== process.env.UPLOAD_ADMIN_PASSWORD) {
+      return NextResponse.json(
+        { error: "Unauthorized: Invalid upload password" },
+        { status: 401 }
+      );
+    }
+
     const file = formData.get("file") as File;
 
     if (!file) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
     }
 
-    // Validate file size (be generous but sensible)
-    const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500MB max
+    // Validate file size (500MB max)
+    const MAX_FILE_SIZE = 500 * 1024 * 1024;
     if (file.size > MAX_FILE_SIZE) {
       return NextResponse.json(
         { error: `File too large. Maximum size is 500MB. Received: ${(file.size / (1024 * 1024)).toFixed(2)}MB` },
@@ -59,10 +59,8 @@ export async function POST(request: NextRequest) {
         message: sufyError.message,
         code: sufyError.code,
         statusCode: sufyError.$metadata?.httpStatusCode,
-        response: sufyError.$response,
       });
 
-      // If it's a 413 from S3 itself, return that
       if (sufyError.$metadata?.httpStatusCode === 413) {
         return NextResponse.json(
           { 
@@ -73,7 +71,6 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // Generic S3 error
       return NextResponse.json(
         { 
           error: "Failed to upload file to storage provider",

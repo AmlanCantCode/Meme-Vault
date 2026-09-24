@@ -19,7 +19,23 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { title = "", category = "", tags = [], video_url = "", url = "", slug = "" } = body;
+    const {
+      title = "",
+      category = "",
+      tags = [],
+      video_url = "",
+      url = "",
+      slug = "",
+      password = "",
+    } = body;
+
+    // 🔒 Verify Admin Password
+    if (!password || password !== process.env.UPLOAD_ADMIN_SECRET) {
+      return NextResponse.json(
+        { error: "Oops! Password is incorrect." },
+        { status: 401 }
+      );
+    }
 
     const finalVideoUrl = video_url || url;
 
@@ -37,7 +53,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // Format tags if passed as comma-separated string
     let formattedTags = tags;
     if (typeof tags === "string") {
       formattedTags = tags
@@ -46,7 +61,6 @@ export async function POST(req: Request) {
         .filter(Boolean);
     }
 
-    // Generate slug fallback if missing
     const finalSlug =
       slug ||
       title
@@ -58,7 +72,6 @@ export async function POST(req: Request) {
         "-" +
         Date.now();
 
-    // Duplicate title check using admin client
     const { data: existing, error: dupCheckError } = await supabaseAdmin
       .from("memes")
       .select("id")
@@ -77,7 +90,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // Insert record via admin client
     const { data: newMeme, error } = await supabaseAdmin
       .from("memes")
       .insert([

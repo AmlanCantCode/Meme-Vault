@@ -5,7 +5,15 @@ import { sufyClient } from "@/lib/sufy";
 
 export async function POST(request: NextRequest) {
   try {
-    const { fileName, fileType } = await request.json();
+    const { fileName, fileType, password } = await request.json();
+
+    // 🔒 Verify Admin Password
+    if (!password || password !== process.env.UPLOAD_ADMIN_SECRET) {
+      return NextResponse.json(
+        { error: "Oops! Password is incorrect." },
+        { status: 401 }
+      );
+    }
 
     if (!fileName || !fileType) {
       return NextResponse.json(
@@ -26,13 +34,11 @@ export async function POST(request: NextRequest) {
         ContentType: fileType,
       });
 
-      // Generate signed upload URL pointing to S3
       console.log("Generating signed URL...");
       const uploadUrl = await getSignedUrl(sufyClient, command, {
         expiresIn: 600, // 10 minutes
       });
 
-      // Construct public viewable link using Sufy CDN
       const cdnBase =
         process.env.NEXT_PUBLIC_SUFY_PUBLIC_URL ||
         "https://idoxjpn.sufydely.com";
@@ -64,7 +70,6 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error("Presigned URL Generation Error:", error);
 
-    // Check if it's a JSON parsing error
     if (error instanceof SyntaxError) {
       return NextResponse.json(
         { error: "Invalid JSON in request body" },
@@ -82,7 +87,6 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Also add a GET handler for debugging
 export async function GET() {
   return NextResponse.json(
     {
