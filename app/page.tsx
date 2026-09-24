@@ -13,8 +13,8 @@ interface Meme {
   videoUrl?: string;
 }
 
-function useDebouncedValue<T>(value: T, delayMs: number) {
-  const [debounced, setDebounced] = useState(value);
+function useDebouncedValue<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = useState<T>(value);
   useEffect(() => {
     const t = setTimeout(() => setDebounced(value), delayMs);
     return () => clearTimeout(t);
@@ -57,9 +57,10 @@ export default function Home() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to load memes");
       setMemes(data.memes || []);
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Something went wrong loading the vault.";
       console.error("Failed to load memes", err);
-      setLoadError(err.message || "Something went wrong loading the vault.");
+      setLoadError(message);
     } finally {
       setLoading(false);
     }
@@ -70,7 +71,10 @@ export default function Home() {
   }, [fetchMemes]);
 
   useEffect(() => {
-    const handleOutsideClick = () => setOpenMenuId(null);
+    const handleOutsideClick = () => {
+      setOpenMenuId(null);
+      setIsSettingsOpen(false);
+    };
     window.addEventListener("click", handleOutsideClick);
     return () => window.removeEventListener("click", handleOutsideClick);
   }, []);
@@ -153,8 +157,9 @@ export default function Home() {
       if (!res.ok) throw new Error(data.error || "Failed to delete.");
       setMemes((prev) => prev.filter((m) => m.id !== deleteTarget.id));
       setDeleteTarget(null);
-    } catch (err: any) {
-      setDeleteError(err.message);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Deletion failed.";
+      setDeleteError(message);
     } finally {
       setDeleteLoading(false);
     }
@@ -170,14 +175,13 @@ export default function Home() {
           : "bg-neutral-50 text-neutral-900 selection:bg-red-500 selection:text-white"
       }`}
     >
-      {/* Pinterest-Style Floating Top Navigation */}
+      {/* Floating Top Navigation */}
       <header
         className={`sticky top-0 z-40 backdrop-blur-md px-3 sm:px-6 py-3 border-b transition-colors ${
           isDark ? "bg-[#121212]/90 border-neutral-800/60" : "bg-white/90 border-neutral-200/60"
         }`}
       >
         <div className="max-w-[1920px] mx-auto flex items-center justify-between gap-3 sm:gap-4">
-          {/* Logo Icon */}
           <Link href="/" className="flex items-center gap-2.5 shrink-0 group">
             <div className="relative w-9 h-9 rounded-full overflow-hidden shadow-sm group-hover:scale-105 transition-transform">
               <Image
@@ -190,7 +194,7 @@ export default function Home() {
             </div>
           </Link>
 
-          {/* Pinterest Pill Search Bar */}
+          {/* Search Bar */}
           <div className="flex-1 max-w-4xl">
             <div className="relative flex items-center">
               <svg
@@ -330,7 +334,6 @@ export default function Home() {
             </Link>
           </div>
         ) : (
-          /* Multi-column Pinterest layout (Cards are smaller with higher column counts) */
           <div className="columns-2 xs:columns-3 sm:columns-3 md:columns-4 lg:columns-5 xl:columns-6 2xl:columns-7 gap-3 sm:gap-4 space-y-3 sm:space-y-4">
             {filteredMemes.map((meme) => (
               <div
@@ -338,11 +341,9 @@ export default function Home() {
                 className="break-inside-avoid group relative flex flex-col cursor-pointer"
                 onClick={() => setSelectedMeme(meme)}
               >
-                {/* Media Container with Overlay Actions */}
                 <div className="relative rounded-2xl overflow-hidden bg-neutral-900 shadow-sm group-hover:shadow-md transition-all duration-200">
                   <LazyCardMedia src={meme.video_url || meme.videoUrl || ""} isDark={isDark} />
 
-                  {/* Pinterest-style Top Right Download Button Overlay */}
                   <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none p-2.5 flex flex-col justify-between">
                     <div className="flex justify-end pointer-events-auto">
                       <button
@@ -355,7 +356,6 @@ export default function Home() {
                       </button>
                     </div>
 
-                    {/* Bottom Action Menu Trigger */}
                     <div className="flex justify-between items-center pointer-events-auto">
                       {meme.category ? (
                         <span className="text-[9px] font-bold text-white bg-black/60 backdrop-blur-md px-2 py-0.5 rounded-full uppercase tracking-wider">
@@ -379,7 +379,6 @@ export default function Home() {
                           </svg>
                         </button>
 
-                        {/* Action Popover */}
                         {openMenuId === meme.id && (
                           <div
                             onClick={(e) => e.stopPropagation()}
@@ -421,7 +420,6 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* Pin Title & Clean Tags below card */}
                 <div className="pt-1.5 px-0.5">
                   <h3 className="text-[11px] sm:text-xs font-semibold leading-tight line-clamp-2">
                     {meme.title}
@@ -454,7 +452,6 @@ export default function Home() {
               isDark ? "bg-[#181818] text-neutral-100" : "bg-white text-neutral-900"
             }`}
           >
-            {/* Video Player */}
             <div className="relative bg-black flex-1 min-h-[260px] md:min-h-[400px] flex items-center justify-center">
               <video
                 src={selectedMeme.video_url || selectedMeme.videoUrl}
@@ -466,7 +463,6 @@ export default function Home() {
               />
             </div>
 
-            {/* Content Sidebar */}
             <div className="w-full md:w-72 p-5 flex flex-col justify-between">
               <div>
                 <div className="flex items-center justify-between mb-3">
@@ -503,7 +499,6 @@ export default function Home() {
                 )}
               </div>
 
-              {/* Modal Actions */}
               <div className="space-y-2 pt-4 mt-4 border-t border-neutral-800/40">
                 <button
                   onClick={(e) =>
@@ -529,7 +524,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* Admin Deletion Passcode Modal */}
+      {/* Admin Deletion Modal */}
       {deleteTarget && (
         <div
           onClick={() => !deleteLoading && setDeleteTarget(null)}
@@ -586,7 +581,6 @@ export default function Home() {
   );
 }
 
-// Compact Video Thumbnail Card
 function LazyCardMedia({ src, isDark }: { src: string; isDark: boolean }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -631,12 +625,12 @@ function LazyCardMedia({ src, isDark }: { src: string; isDark: boolean }) {
       ref={containerRef}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
-      className={`relative w-full aspect-[3/4] overflow-hidden ${
+      className={`relative w-full overflow-hidden ${
         isDark ? "bg-neutral-900" : "bg-neutral-200"
       }`}
     >
       {!isVisible && (
-        <div className={`w-full h-full animate-pulse ${isDark ? "bg-neutral-800" : "bg-neutral-200"}`} />
+        <div className={`w-full aspect-[3/4] animate-pulse ${isDark ? "bg-neutral-800" : "bg-neutral-200"}`} />
       )}
 
       {isVisible && !hasError && (
@@ -649,12 +643,12 @@ function LazyCardMedia({ src, isDark }: { src: string; isDark: boolean }) {
           controls={false}
           preload="metadata"
           onError={() => setHasError(true)}
-          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+          className="w-full h-auto object-cover group-hover:scale-105 transition-transform duration-300 block"
         />
       )}
 
       {isVisible && hasError && (
-        <div className="w-full h-full flex flex-col items-center justify-center text-[10px] text-neutral-500 p-2 text-center">
+        <div className="w-full aspect-[3/4] flex flex-col items-center justify-center text-[10px] text-neutral-500 p-2 text-center">
           <span>⚠️</span>
           <span>Unavailable</span>
         </div>
@@ -663,7 +657,6 @@ function LazyCardMedia({ src, isDark }: { src: string; isDark: boolean }) {
   );
 }
 
-// Skeleton Loader with multi-column proportions
 function SkeletonGrid({ isDark }: { isDark: boolean }) {
   const heights = [180, 240, 160, 220, 200, 250, 190, 210, 170, 230, 190, 220];
   return (
