@@ -32,6 +32,7 @@ export default function RootLayout({ children }: LayoutProps) {
       <head>
         {/* Monetag In-Page Push Zone (11870384) */}
         <Script
+          id="monetag-inpage-push"
           src="https://alwingulla.com/88/tag.min.js"
           data-zone="11870384"
           strategy="afterInteractive"
@@ -39,6 +40,7 @@ export default function RootLayout({ children }: LayoutProps) {
         
         {/* Monetag Vignette Banner Zone (11870472) */}
         <Script
+          id="monetag-vignette"
           src="https://alwingulla.com/88/tag.min.js"
           data-zone="11870472"
           strategy="afterInteractive"
